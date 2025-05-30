@@ -1,0 +1,430 @@
+import streamlit as st
+import sqlite3
+import pandas as pd
+from datetime import datetime, date
+import os
+
+# Configuration de la page
+st.set_page_config(
+    page_title="Gestion Hôtelière",
+    page_icon="🏨",
+    layout="wide"
+)
+
+class HotelDatabase:
+    def __init__(self, db_name="hotel_management.db"):
+        self.db_name = db_name
+        self.init_database()
+    
+    def get_connection(self):
+        return sqlite3.connect(self.db_name)
+    
+    def init_database(self):
+        """Initialise la base de données avec les tables et les données"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        # Création des tables
+        cursor.executescript("""
+        -- Table Hotel
+        CREATE TABLE IF NOT EXISTS Hotel (
+            id INTEGER PRIMARY KEY,
+            ville TEXT NOT NULL,
+            pays TEXT NOT NULL,
+            code_postal TEXT NOT NULL
+        );
+        
+        -- Table Client
+        CREATE TABLE IF NOT EXISTS Client (
+            id INTEGER PRIMARY KEY,
+            adresse TEXT NOT NULL,
+            ville TEXT NOT NULL,
+            code_postal TEXT NOT NULL,
+            email TEXT NOT NULL UNIQUE,
+            telephone TEXT NOT NULL,
+            nom TEXT NOT NULL
+        );
+        
+        -- Table Prestation
+        CREATE TABLE IF NOT EXISTS Prestation (
+            id INTEGER PRIMARY KEY,
+            prix REAL NOT NULL,
+            nom TEXT NOT NULL
+        );
+        
+        -- Table Type_Chambre
+        CREATE TABLE IF NOT EXISTS Type_Chambre (
+            id INTEGER PRIMARY KEY,
+            nom TEXT NOT NULL,
+            prix REAL NOT NULL
+        );
+        
+        -- Table Chambre
+        CREATE TABLE IF NOT EXISTS Chambre (
+            id INTEGER PRIMARY KEY,
+            numero INTEGER NOT NULL,
+            etage INTEGER NOT NULL,
+            avec_balcon INTEGER NOT NULL,
+            id_hotel INTEGER NOT NULL,
+            id_type_chambre INTEGER NOT NULL,
+            FOREIGN KEY (id_hotel) REFERENCES Hotel(id),
+            FOREIGN KEY (id_type_chambre) REFERENCES Type_Chambre(id)
+        );
+        
+        -- Table Reservation
+        CREATE TABLE IF NOT EXISTS Reservation (
+            id INTEGER PRIMARY KEY,
+            date_debut DATE NOT NULL,
+            date_fin DATE NOT NULL,
+            id_client INTEGER NOT NULL,
+            id_chambre INTEGER,
+            FOREIGN KEY (id_client) REFERENCES Client(id),
+            FOREIGN KEY (id_chambre) REFERENCES Chambre(id)
+        );
+        
+        -- Table Evaluation
+        CREATE TABLE IF NOT EXISTS Evaluation (
+            id INTEGER PRIMARY KEY,
+            date_evaluation DATE NOT NULL,
+            note INTEGER NOT NULL CHECK (note >= 1 AND note <= 5),
+            commentaire TEXT,
+            id_client INTEGER NOT NULL,
+            FOREIGN KEY (id_client) REFERENCES Client(id)
+        );
+        """)
+        
+        # Insertion des données initiales
+        self.insert_initial_data(cursor)
+        
+        conn.commit()
+        conn.close()
+    
+    def insert_initial_data(self, cursor):
+        """Insère les données initiales si elles n'existent pas déjà"""
+        
+        # Vérifier si les données existent déjà
+        cursor.execute("SELECT COUNT(*) FROM Hotel")
+        if cursor.fetchone()[0] > 0:
+            return  # Les données existent déjà
+        
+        # Insertion des données Hotel
+        hotels = [
+            (1, 'Paris', 'France', '75001'),
+            (2, 'Lyon', 'France', '69002')
+        ]
+        cursor.executemany("INSERT INTO Hotel VALUES (?, ?, ?, ?)", hotels)
+        
+        # Insertion des données Client
+        clients = [
+            (1, '12 Rue de Paris', 'Paris', '75001', 'jean.dupont@email.fr', '0612345678', 'Jean Dupont'),
+            (2, '5 Avenue Victor Hugo', 'Lyon', '69002', 'marie.leroy@email.fr', '0623456789', 'Marie Leroy'),
+            (3, '8 Boulevard Saint-Michel', 'Marseille', '13005', 'paul.moreau@email.fr', '0634567890', 'Paul Moreau'),
+            (4, '27 Rue Nationale', 'Lille', '59800', 'lucie.martin@email.fr', '0645678901', 'Lucie Martin'),
+            (5, '3 Rue des Fleurs', 'Nice', '06000', 'emma.giraud@email.fr', '0656789012', 'Emma Giraud')
+        ]
+        cursor.executemany("INSERT INTO Client VALUES (?, ?, ?, ?, ?, ?, ?)", clients)
+        
+        # Insertion des données Prestation
+        prestations = [
+            (1, 15, 'Petit-déjeuner'),
+            (2, 30, 'Navette aéroport'),
+            (3, 0, 'Wi-Fi gratuit'),
+            (4, 50, 'Spa et bien-être'),
+            (5, 20, 'Parking sécurisé')
+        ]
+        cursor.executemany("INSERT INTO Prestation VALUES (?, ?, ?)", prestations)
+        
+        # Insertion des données Type_Chambre
+        types_chambre = [
+            (1, 'Simple', 80),
+            (2, 'Double', 120)
+        ]
+        cursor.executemany("INSERT INTO Type_Chambre VALUES (?, ?, ?)", types_chambre)
+        
+        # Insertion des données Chambre
+        chambres = [
+            (1, 201, 2, 0, 1, 1),
+            (2, 502, 5, 1, 1, 2),
+            (3, 305, 3, 0, 2, 1),
+            (4, 410, 4, 0, 2, 2),
+            (5, 104, 1, 1, 2, 2),
+            (6, 202, 2, 0, 1, 1),
+            (7, 307, 3, 1, 1, 2),
+            (8, 101, 1, 0, 1, 1)
+        ]
+        cursor.executemany("INSERT INTO Chambre VALUES (?, ?, ?, ?, ?, ?)", chambres)
+        
+        # Insertion des données Reservation
+        reservations = [
+            (1, '2025-06-15', '2025-06-18', 1, 1),
+            (2, '2025-07-01', '2025-07-05', 2, 2),
+            (3, '2025-08-10', '2025-08-14', 3, 3),
+            (4, '2025-09-05', '2025-09-07', 4, 4),
+            (5, '2025-09-20', '2025-09-25', 5, 5),
+            (7, '2025-11-12', '2025-11-14', 2, 6),
+            (9, '2026-01-15', '2026-01-18', 4, 7),
+            (10, '2026-02-01', '2026-02-05', 2, 8)
+        ]
+        cursor.executemany("INSERT INTO Reservation VALUES (?, ?, ?, ?, ?)", reservations)
+        
+        # Insertion des données Evaluation
+        evaluations = [
+            (1, '2025-06-15', 5, 'Excellent séjour, personnel très accueillant.', 1),
+            (2, '2025-07-01', 4, 'Chambre propre, bon rapport qualité/prix.', 2),
+            (3, '2025-08-10', 3, 'Séjour correct mais bruyant la nuit.', 3),
+            (4, '2025-09-05', 5, 'Service impeccable, je recommande.', 4),
+            (5, '2025-09-20', 4, 'Très bon petit-déjeuner, hôtel bien situé.', 5)
+        ]
+        cursor.executemany("INSERT INTO Evaluation VALUES (?, ?, ?, ?, ?)", evaluations)
+    
+    def get_reservations(self):
+        """Récupère la liste des réservations avec les informations du client"""
+        conn = self.get_connection()
+        query = """
+        SELECT r.id, r.date_debut, r.date_fin, c.nom, c.email, 
+               ch.numero as numero_chambre, h.ville as hotel_ville
+        FROM Reservation r
+        JOIN Client c ON r.id_client = c.id
+        LEFT JOIN Chambre ch ON r.id_chambre = ch.id
+        LEFT JOIN Hotel h ON ch.id_hotel = h.id
+        ORDER BY r.date_debut DESC
+        """
+        df = pd.read_sql_query(query, conn)
+        conn.close()
+        return df
+    
+    def get_clients(self):
+        """Récupère la liste des clients"""
+        conn = self.get_connection()
+        query = "SELECT * FROM Client ORDER BY nom"
+        df = pd.read_sql_query(query, conn)
+        conn.close()
+        return df
+    
+    def get_available_rooms(self, date_debut, date_fin):
+        """Récupère les chambres disponibles pour une période donnée"""
+        conn = self.get_connection()
+        query = """
+        SELECT ch.id, ch.numero, ch.etage, 
+               CASE WHEN ch.avec_balcon = 1 THEN 'Oui' ELSE 'Non' END as balcon,
+               h.ville as hotel, tc.nom as type_chambre, tc.prix
+        FROM Chambre ch
+        JOIN Hotel h ON ch.id_hotel = h.id
+        JOIN Type_Chambre tc ON ch.id_type_chambre = tc.id
+        WHERE ch.id NOT IN (
+            SELECT DISTINCT r.id_chambre 
+            FROM Reservation r 
+            WHERE r.id_chambre IS NOT NULL
+            AND (
+                (r.date_debut <= ? AND r.date_fin >= ?) OR
+                (r.date_debut <= ? AND r.date_fin >= ?) OR
+                (r.date_debut >= ? AND r.date_fin <= ?)
+            )
+        )
+        ORDER BY h.ville, ch.numero
+        """
+        df = pd.read_sql_query(query, conn, params=[date_debut, date_debut, date_fin, date_fin, date_debut, date_fin])
+        conn.close()
+        return df
+    
+    def add_client(self, adresse, ville, code_postal, email, telephone, nom):
+        """Ajoute un nouveau client"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO Client (adresse, ville, code_postal, email, telephone, nom)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (adresse, ville, code_postal, email, telephone, nom))
+            conn.commit()
+            return True, "Client ajouté avec succès!"
+        except sqlite3.IntegrityError:
+            return False, "Erreur: Cet email existe déjà!"
+        except Exception as e:
+            return False, f"Erreur: {str(e)}"
+        finally:
+            conn.close()
+    
+    def add_reservation(self, date_debut, date_fin, id_client, id_chambre=None):
+        """Ajoute une nouvelle réservation"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO Reservation (date_debut, date_fin, id_client, id_chambre)
+                VALUES (?, ?, ?, ?)
+            """, (date_debut, date_fin, id_client, id_chambre))
+            conn.commit()
+            return True, "Réservation ajoutée avec succès!"
+        except Exception as e:
+            return False, f"Erreur: {str(e)}"
+        finally:
+            conn.close()
+    
+    def get_client_options(self):
+        """Récupère la liste des clients pour les sélections"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, nom FROM Client ORDER BY nom")
+        clients = cursor.fetchall()
+        conn.close()
+        return {f"{nom} (ID: {id})": id for id, nom in clients}
+    
+    def get_room_options(self):
+        """Récupère la liste des chambres pour les sélections"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT ch.id, ch.numero, h.ville, tc.nom
+            FROM Chambre ch
+            JOIN Hotel h ON ch.id_hotel = h.id
+            JOIN Type_Chambre tc ON ch.id_type_chambre = tc.id
+            ORDER BY h.ville, ch.numero
+        """)
+        rooms = cursor.fetchall()
+        conn.close()
+        return {f"Chambre {numero} - {ville} ({type})": id for id, numero, ville, type in rooms}
+
+# Initialisation de l'application
+def main():
+    st.title("🏨 Système de Gestion Hôtelière")
+    st.markdown("---")
+    
+    # Initialisation de la base de données
+    db = HotelDatabase()
+    
+    # Menu de navigation
+    menu = st.sidebar.selectbox(
+        "Navigation",
+        ["Accueil", "Réservations", "Clients", "Chambres Disponibles", "Ajouter Client", "Ajouter Réservation"]
+    )
+    
+    if menu == "Accueil":
+        st.header("Bienvenue dans le système de gestion hôtelière")
+        st.write("""
+        Cette application vous permet de :
+        - 📋 Consulter la liste des réservations
+        - 👥 Consulter la liste des clients
+        - 🏠 Consulter les chambres disponibles par période
+        - ➕ Ajouter de nouveaux clients
+        - 📅 Ajouter de nouvelles réservations
+        """)
+        
+        # Statistiques rapides
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            reservations = db.get_reservations()
+            st.metric("Total Réservations", len(reservations))
+        
+        with col2:
+            clients = db.get_clients()
+            st.metric("Total Clients", len(clients))
+        
+        with col3:
+            # Chambres disponibles aujourd'hui
+            today = date.today()
+            available = db.get_available_rooms(today, today)
+            st.metric("Chambres Disponibles", len(available))
+    
+    elif menu == "Réservations":
+        st.header("📋 Liste des Réservations")
+        
+        reservations = db.get_reservations()
+        if not reservations.empty:
+            st.dataframe(reservations, use_container_width=True)
+        else:
+            st.info("Aucune réservation trouvée.")
+    
+    elif menu == "Clients":
+        st.header("👥 Liste des Clients")
+        
+        clients = db.get_clients()
+        if not clients.empty:
+            st.dataframe(clients, use_container_width=True)
+        else:
+            st.info("Aucun client trouvé.")
+    
+    elif menu == "Chambres Disponibles":
+        st.header("🏠 Chambres Disponibles")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            date_debut = st.date_input("Date de début", value=date.today())
+        with col2:
+            date_fin = st.date_input("Date de fin", value=date.today())
+        
+        if st.button("Rechercher"):
+            if date_debut <= date_fin:
+                available_rooms = db.get_available_rooms(date_debut, date_fin)
+                if not available_rooms.empty:
+                    st.success(f"{len(available_rooms)} chambre(s) disponible(s)")
+                    st.dataframe(available_rooms, use_container_width=True)
+                else:
+                    st.warning("Aucune chambre disponible pour cette période.")
+            else:
+                st.error("La date de début doit être antérieure ou égale à la date de fin.")
+    
+    elif menu == "Ajouter Client":
+        st.header("➕ Ajouter un Nouveau Client")
+        
+        with st.form("add_client_form"):
+            nom = st.text_input("Nom complet*")
+            email = st.text_input("Email*")
+            telephone = st.text_input("Téléphone*")
+            adresse = st.text_input("Adresse*")
+            ville = st.text_input("Ville*")
+            code_postal = st.text_input("Code postal*")
+            
+            submitted = st.form_submit_button("Ajouter Client")
+            
+            if submitted:
+                if all([nom, email, telephone, adresse, ville, code_postal]):
+                    success, message = db.add_client(adresse, ville, code_postal, email, telephone, nom)
+                    if success:
+                        st.success(message)
+                    else:
+                        st.error(message)
+                else:
+                    st.error("Veuillez remplir tous les champs obligatoires.")
+    
+    elif menu == "Ajouter Réservation":
+        st.header("📅 Ajouter une Nouvelle Réservation")
+        
+        with st.form("add_reservation_form"):
+            # Sélection du client
+            client_options = db.get_client_options()
+            if client_options:
+                selected_client = st.selectbox("Client*", list(client_options.keys()))
+                id_client = client_options[selected_client]
+            else:
+                st.error("Aucun client disponible. Ajoutez d'abord un client.")
+                st.stop()
+            
+            # Dates
+            col1, col2 = st.columns(2)
+            with col1:
+                date_debut = st.date_input("Date de début*")
+            with col2:
+                date_fin = st.date_input("Date de fin*")
+            
+            # Sélection de la chambre (optionnel)
+            room_options = db.get_room_options()
+            room_options["Aucune chambre spécifique"] = None
+            selected_room = st.selectbox("Chambre", list(room_options.keys()))
+            id_chambre = room_options[selected_room]
+            
+            submitted = st.form_submit_button("Ajouter Réservation")
+            
+            if submitted:
+                if date_debut <= date_fin:
+                    success, message = db.add_reservation(date_debut, date_fin, id_client, id_chambre)
+                    if success:
+                        st.success(message)
+                    else:
+                        st.error(message)
+                else:
+                    st.error("La date de début doit être antérieure ou égale à la date de fin.")
+
+if __name__ == "__main__":
+    main()
